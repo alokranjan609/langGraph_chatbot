@@ -3,7 +3,7 @@ from langgraph_backend import chatbot
 from langchain_core.messages import HumanMessage, AIMessage
 import uuid
 
-# **************************************** utility functions *************************
+# **************************************** Utility Functions *************************
 
 def generate_thread_id():
     thread_id = uuid.uuid4()
@@ -24,8 +24,25 @@ def load_conversation(thread_id):
     # Check if messages key exists in state values, return empty list if not
     return state.values.get('messages', [])
 
+def get_latest_message(thread_id):
+    """Returns the latest message (user or assistant) from a given thread."""
+    messages = load_conversation(thread_id)
+    if not messages:
+        return "Current Chat"
+    
+    last_msg = messages[-1]
+    if isinstance(last_msg, HumanMessage):
+        prefix = "You: "
+    else:
+        prefix = ""
+
+    # Limit length for better sidebar readability
+    text = last_msg.content.strip().replace("\n", " ")
+    return prefix + (text[:10] + "..." if len(text) > 40 else text)
+
 
 # **************************************** Session Setup ******************************
+
 if 'message_history' not in st.session_state:
     st.session_state['message_history'] = []
 
@@ -42,23 +59,21 @@ add_thread(st.session_state['thread_id'])
 
 st.sidebar.title('LangGraph Chatbot')
 
-if st.sidebar.button('New Chat'):
+if st.sidebar.button('➕ New Chat'):
     reset_chat()
 
-st.sidebar.header('My Conversations')
+st.sidebar.header('🗂 My Conversations')
 
+# Display latest messages instead of thread IDs
 for thread_id in st.session_state['chat_threads'][::-1]:
-    if st.sidebar.button(str(thread_id)):
+    latest_message = get_latest_message(thread_id)
+    if st.sidebar.button(latest_message, help=str(thread_id)):
         st.session_state['thread_id'] = thread_id
         messages = load_conversation(thread_id)
 
         temp_messages = []
-
         for msg in messages:
-            if isinstance(msg, HumanMessage):
-                role='user'
-            else:
-                role='assistant'
+            role = 'user' if isinstance(msg, HumanMessage) else 'assistant'
             temp_messages.append({'role': role, 'content': msg.content})
 
         st.session_state['message_history'] = temp_messages
@@ -66,23 +81,23 @@ for thread_id in st.session_state['chat_threads'][::-1]:
 
 # **************************************** Main UI ************************************
 
-# loading the conversation history
+# Display previous conversation
 for message in st.session_state['message_history']:
     with st.chat_message(message['role']):
         st.text(message['content'])
 
-user_input = st.chat_input('Type here')
+# Chat input box
+user_input = st.chat_input('Type your message here...')
 
 if user_input:
-
-    # first add the message to message_history
+    # Add user message to chat history
     st.session_state['message_history'].append({'role': 'user', 'content': user_input})
     with st.chat_message('user'):
         st.text(user_input)
 
     CONFIG = {'configurable': {'thread_id': st.session_state['thread_id']}}
 
-     # first add the message to message_history
+    # Stream assistant response
     with st.chat_message("assistant"):
         def ai_only_stream():
             for message_chunk, metadata in chatbot.stream(
@@ -91,9 +106,9 @@ if user_input:
                 stream_mode="messages"
             ):
                 if isinstance(message_chunk, AIMessage):
-                    # yield only assistant tokens
                     yield message_chunk.content
 
         ai_message = st.write_stream(ai_only_stream())
 
+    # Add assistant message to session history
     st.session_state['message_history'].append({'role': 'assistant', 'content': ai_message})
